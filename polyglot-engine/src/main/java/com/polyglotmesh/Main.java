@@ -7,83 +7,101 @@ import java.nio.charset.StandardCharsets;
 
 public class Main {
     public static void main(String[] args) {
-         System.out.println("PolyglotMesh - Python Engine");
-        
-        // Milestone 1: Basic Python print execution
-        runBasicPython();
+        System.out.println("=========================================");
+        System.out.println("      PolyglotMesh - Multi-Language      ");
+        System.out.println("=========================================\n");
 
-        // Milestone 2: Python script with variables & math
+        // ----------------- PYTHON -----------------
+        System.out.println(">>> PYTHON EXECUTION ENGINE <<<");
         runPythonPricingAlgorithm();
-
-        // Milestone 3: Capturing Python stdout into a Java String
         runPythonWithCapturedOutput();
-    }
 
-    /**
-     * Milestone 1: Direct Python execution
-     */
-    private static void runBasicPython() {
-        System.out.println("[Milestone 1] Executing Basic Python Statement:");
-        try (Context context = Context.newBuilder("python").build()) {
-            // Executing Python directly inside JVM
-            context.eval("python", "print('Hello from Python!')");
-        } catch (Exception e) {
-            System.err.println("Python Execution Error: " + e.getMessage());
-        }
-        System.out.println();
-    }
+        // ----------------- JAVASCRIPT -----------------
+        System.out.println(">>> JAVASCRIPT EXECUTION ENGINE <<<");
+        runBasicJavaScript();
+        runJavaScriptValidation();
 
-    /**
-     * Milestone 2: Multi-line Python calculation
-     */
+        // ----------------- UNIFIED POLYGLOT ------------------
+        System.out.println(">>> UNIFIED POLYGLOT TEST <<<");
+        executeAnyCode("python", "print('Python Engine: Active & Running')");
+        executeAnyCode("js", "console.log('JavaScript Engine: Active & Running');");
+
+         }
+
+    // ==================== PYTHON METHODS ====================
+
     private static void runPythonPricingAlgorithm() {
-        System.out.println("[Milestone 2] Executing Python Dynamic Pricing Engine:");
+        System.out.println("[Python] Executing Dynamic Pricing Engine:");
         try (Context context = Context.newBuilder("python").build()) {
-            String pythonScript = 
+            String script = 
                 "base_price = 100\n" +
                 "demand_factor = 1.5\n" +
                 "final_price = base_price * demand_factor\n" +
-                "final_price"; // last expression is returned as Value
+                "final_price";
 
-            Value result = context.eval("python", pythonScript);
-            System.out.println("  Calculated Final Price: $" + result.asDouble());
+            Value result = context.eval("python", script);
+            System.out.println("  Calculated Price: $" + result.asDouble());
         } catch (Exception e) {
-            System.err.println("Pricing Error: " + e.getMessage());
+            System.err.println("  Python Error: " + e.getMessage());
         }
         System.out.println();
     }
 
-    /**
-     * Milestone 3: Capturing Python console output into a Java String
-     */
     private static void runPythonWithCapturedOutput() {
-        System.out.println("[Milestone 3] Capturing Python stdout into Java variable:");
+        System.out.println("[Python] Capturing stdout stream into Java:");
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+        try (Context context = Context.newBuilder("python").out(output).build()) {
+            context.eval("python", "print('Python says: Processing complete!')");
+            System.out.println("  Captured: " + output.toString(StandardCharsets.UTF_8).trim());
+        } catch (Exception e) {
+            System.err.println("  Capture Error: " + e.getMessage());
+        }
+        System.out.println();
+    }
 
-        ByteArrayOutputStream capturedOutputStream = new ByteArrayOutputStream();
+    // ==================== JAVASCRIPT METHODS =================
 
-        // Redirect Python's stdout to our in-memory Java stream
-        try (Context context = Context.newBuilder("python")
-                .out(capturedOutputStream)
+    private static void runBasicJavaScript() {
+        System.out.println("[JavaScript] Executing Basic console.log:");
+        try (Context context = Context.newBuilder("js").build()) {
+            context.eval("js", "console.log('Hello from JavaScript!');");
+        } catch (Exception e) {
+            System.err.println("  JS Error: " + e.getMessage());
+        }
+        System.out.println();
+    }
+
+    private static void runJavaScriptValidation() {
+        System.out.println("[JavaScript] Executing Validation Logic:");
+        try (Context context = Context.newBuilder("js").build()) {
+            String jsScript = 
+                "const price = 150;\n" +
+                "const tier = price > 100 ? 'Premium Tier' : 'Standard Tier';\n" +
+                "console.log('Evaluated Price: $' + price + ' -> ' + tier);\n" +
+                "tier;";
+
+            Value result = context.eval("js", jsScript);
+            System.out.println("  Returned to Java: " + result.asString());
+        } catch (Exception e) {
+            System.err.println("  Validation Error: " + e.getMessage());
+        }
+        System.out.println();
+    }
+
+    // ==================== UNIFIED RUNNER ============================
+
+    private static void executeAnyCode(String language, String code) {
+        ByteArrayOutputStream capturedOutput = new ByteArrayOutputStream();
+        try (Context context = Context.newBuilder("python", "js")
+                .out(capturedOutput)
                 .build()) {
 
-            String pythonCode = 
-                "print('--- Python Execution Report ---')\n" +
-                "items = ['Laptop', 'Mouse', 'Keyboard']\n" +
-                "for i, item in enumerate(items, 1):\n" +
-                "    print(f'{i}. {item} processed')\n";
-
-            context.eval("python", pythonCode);
-
-            // Convert captured stream into Java String
-            String outputFromPython = capturedOutputStream.toString(StandardCharsets.UTF_8).trim();
-
-            System.out.println(">>> Result successfully captured by Java <<<");
-            System.out.println(outputFromPython);
+            context.eval(language, code);
+            String result = capturedOutput.toString(StandardCharsets.UTF_8).trim();
+            System.out.println("  [" + language.toUpperCase() + " Output]: " + result);
 
         } catch (Exception e) {
-            System.err.println("Capture Error: " + e.getMessage());
+            System.err.println("  Error: " + e.getMessage());
         }
-
-        System.out.println("Python Milestone 100% Complete!");
-         }
+    }
 }
