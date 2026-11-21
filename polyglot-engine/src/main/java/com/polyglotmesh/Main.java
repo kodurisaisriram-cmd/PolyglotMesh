@@ -1,107 +1,51 @@
 package com.polyglotmesh;
 
-import org.graalvm.polyglot.Context;
-import org.graalvm.polyglot.Value;
-import java.io.ByteArrayOutputStream;
-import java.nio.charset.StandardCharsets;
+import com.polyglotmesh.model.ExecutionRequest;
+import com.polyglotmesh.model.ExecutionResponse;
+import com.polyglotmesh.service.PolyglotExecutionService;
 
 public class Main {
     public static void main(String[] args) {
-        System.out.println("=========================================");
-        System.out.println("      PolyglotMesh - Multi-Language      ");
-        System.out.println("=========================================\n");
+        
+        PolyglotExecutionService executionService = new PolyglotExecutionService();
 
-        // ----------------- PYTHON -----------------
-        System.out.println(">>> PYTHON EXECUTION ENGINE <<<");
-        runPythonPricingAlgorithm();
-        runPythonWithCapturedOutput();
+        // 1. Test Python execution via Service
+        System.out.println("[Test 1] Calling executionService for Python:");
+        ExecutionRequest pythonRequest = new ExecutionRequest(
+            "python",
+            "base_price = 100\n" +
+            "demand = 1.8\n" +
+            "print(f'Calculated price: ${base_price * demand}')"
+        );
+        ExecutionResponse pythonResponse = executionService.execute(pythonRequest);
+        printResponse(pythonResponse);
 
-        // ----------------- JAVASCRIPT -----------------
-        System.out.println(">>> JAVASCRIPT EXECUTION ENGINE <<<");
-        runBasicJavaScript();
-        runJavaScriptValidation();
+        // 2. Test JavaScript execution via Service
+        System.out.println("[Test 2] Calling executionService for JavaScript:");
+        ExecutionRequest jsRequest = new ExecutionRequest(
+            "javascript",
+            "const userRole = 'admin';\n" +
+            "console.log(`Access granted for role: ${userRole.toUpperCase()}`);"
+        );
+        ExecutionResponse jsResponse = executionService.execute(jsRequest);
+        printResponse(jsResponse);
 
-        // ----------------- UNIFIED POLYGLOT ------------------
-        System.out.println(">>> UNIFIED POLYGLOT TEST <<<");
-        executeAnyCode("python", "print('Python Engine: Active & Running')");
-        executeAnyCode("js", "console.log('JavaScript Engine: Active & Running');");
+        // 3. Test Unsupported Language Check
+        System.out.println("[Test 3] Testing validation with unsupported language:");
+        ExecutionResponse invalidResponse = executionService.execute("ruby", "puts 'hello'");
+        printResponse(invalidResponse);
 
          }
 
-    // ==================== PYTHON METHODS ====================
-
-    private static void runPythonPricingAlgorithm() {
-        System.out.println("[Python] Executing Dynamic Pricing Engine:");
-        try (Context context = Context.newBuilder("python").build()) {
-            String script = 
-                "base_price = 100\n" +
-                "demand_factor = 1.5\n" +
-                "final_price = base_price * demand_factor\n" +
-                "final_price";
-
-            Value result = context.eval("python", script);
-            System.out.println("  Calculated Price: $" + result.asDouble());
-        } catch (Exception e) {
-            System.err.println("  Python Error: " + e.getMessage());
+    private static void printResponse(ExecutionResponse response) {
+        System.out.println("  Status : " + (response.isSuccess() ? "SUCCESS " : "FAILED "));
+        System.out.println("  Lang   : " + response.getLanguage());
+        System.out.println("  Time   : " + response.getExecutionTimeMs() + " ms");
+        if (response.isSuccess()) {
+            System.out.println("  Output : " + response.getOutput());
+        } else {
+            System.out.println("  Error  : " + response.getError());
         }
         System.out.println();
-    }
-
-    private static void runPythonWithCapturedOutput() {
-        System.out.println("[Python] Capturing stdout stream into Java:");
-        ByteArrayOutputStream output = new ByteArrayOutputStream();
-        try (Context context = Context.newBuilder("python").out(output).build()) {
-            context.eval("python", "print('Python says: Processing complete!')");
-            System.out.println("  Captured: " + output.toString(StandardCharsets.UTF_8).trim());
-        } catch (Exception e) {
-            System.err.println("  Capture Error: " + e.getMessage());
-        }
-        System.out.println();
-    }
-
-    // ==================== JAVASCRIPT METHODS =================
-
-    private static void runBasicJavaScript() {
-        System.out.println("[JavaScript] Executing Basic console.log:");
-        try (Context context = Context.newBuilder("js").build()) {
-            context.eval("js", "console.log('Hello from JavaScript!');");
-        } catch (Exception e) {
-            System.err.println("  JS Error: " + e.getMessage());
-        }
-        System.out.println();
-    }
-
-    private static void runJavaScriptValidation() {
-        System.out.println("[JavaScript] Executing Validation Logic:");
-        try (Context context = Context.newBuilder("js").build()) {
-            String jsScript = 
-                "const price = 150;\n" +
-                "const tier = price > 100 ? 'Premium Tier' : 'Standard Tier';\n" +
-                "console.log('Evaluated Price: $' + price + ' -> ' + tier);\n" +
-                "tier;";
-
-            Value result = context.eval("js", jsScript);
-            System.out.println("  Returned to Java: " + result.asString());
-        } catch (Exception e) {
-            System.err.println("  Validation Error: " + e.getMessage());
-        }
-        System.out.println();
-    }
-
-    // ==================== UNIFIED RUNNER ============================
-
-    private static void executeAnyCode(String language, String code) {
-        ByteArrayOutputStream capturedOutput = new ByteArrayOutputStream();
-        try (Context context = Context.newBuilder("python", "js")
-                .out(capturedOutput)
-                .build()) {
-
-            context.eval(language, code);
-            String result = capturedOutput.toString(StandardCharsets.UTF_8).trim();
-            System.out.println("  [" + language.toUpperCase() + " Output]: " + result);
-
-        } catch (Exception e) {
-            System.err.println("  Error: " + e.getMessage());
-        }
     }
 }
