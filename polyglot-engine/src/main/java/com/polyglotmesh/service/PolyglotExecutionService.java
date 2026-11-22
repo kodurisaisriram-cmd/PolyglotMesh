@@ -3,6 +3,7 @@ package com.polyglotmesh.service;
 import com.polyglotmesh.model.ExecutionRequest;
 import com.polyglotmesh.model.ExecutionResponse;
 import org.graalvm.polyglot.Context;
+import org.graalvm.polyglot.PolyglotException;
 import org.graalvm.polyglot.Value;
 
 import java.io.ByteArrayOutputStream;
@@ -10,20 +11,17 @@ import java.nio.charset.StandardCharsets;
 
 public class PolyglotExecutionService {
 
-    /**
-     * Executes code based on request DTO
-     */
     public ExecutionResponse execute(ExecutionRequest request) {
+        if (request == null) {
+            return new ExecutionResponse(false, null, null, "ExecutionRequest cannot be null", 0);
+        }
         return execute(request.getLanguage(), request.getCode());
     }
 
-    /**
-     * Core execution method supporting Python and JavaScript
-     */
     public ExecutionResponse execute(String language, String code) {
         long startTime = System.currentTimeMillis();
 
-        // Normalize language identifiers
+        // 1. Validate Language
         String langId = normalizeLanguage(language);
         if (langId == null) {
             long timeTaken = System.currentTimeMillis() - startTime;
@@ -31,9 +29,15 @@ public class PolyglotExecutionService {
                     "Unsupported language: '" + language + "'. Supported: python, js", timeTaken);
         }
 
+        // 2. Validate Code Payload
+        if (code == null || code.trim().isEmpty()) {
+            long timeTaken = System.currentTimeMillis() - startTime;
+            return new ExecutionResponse(false, langId, null, "Code cannot be empty", timeTaken);
+        }
+
         ByteArrayOutputStream capturedOutput = new ByteArrayOutputStream();
 
-        // Create isolated GraalVM Context with redirected stdout
+        // 3. Safe In-Memory Execution
         try (Context context = Context.newBuilder(langId)
                 .out(capturedOutput)
                 .err(capturedOutput)
@@ -42,37 +46,42 @@ public class PolyglotExecutionService {
             Value evalResult = context.eval(langId, code);
 
             String stdoutOutput = capturedOutput.toString(StandardCharsets.UTF_8).trim();
-
-            // If script printed output, use it; otherwise, use returned expression value
             String finalOutput = !stdoutOutput.isEmpty() ? stdoutOutput : 
                                  (evalResult != null && !evalResult.isNull() ? evalResult.toString() : "");
 
             long executionTimeMs = System.currentTimeMillis() - startTime;
             return new ExecutionResponse(true, langId, finalOutput, null, executionTimeMs);
 
+        } catch (PolyglotException pe) {
+            long executionTimeMs = System.currentTimeMillis() - startTime;
+            String errorMessage;
+
+            if (pe.isSyntaxError()) {
+                errorMessage = "[Syntax Error] " + pe.getMessage();
+            } else if (pe.isGuestException()) {
+                errorMessage = "[Runtime Error] " + pe.getMessage();
+            } else if (pe.isCancelled()) {
+                errorMessage = "[Timeout Error] Execution was cancelled or timed out.";
+            } else {
+                errorMessage = "[Execution Error] " + pe.getMessage();
+            }
+
+            return new ExecutionResponse(false, langId, null, errorMessage, executionTimeMs);
+
         } catch (Exception e) {
             long executionTimeMs = System.currentTimeMillis() - startTime;
-            return new ExecutionResponse(false, langId, null, e.getMessage(), executionTimeMs);
+            return new ExecutionResponse(false, langId, null, "[Internal Error] " + e.getMessage(), executionTimeMs);
         }
     }
 
-    /**
-     * Convenience method for Python
-     */
     public ExecutionResponse executePython(String code) {
         return execute("python", code);
     }
 
-    /**
-     * Convenience method for JavaScript
-     */
     public ExecutionResponse executeJavaScript(String code) {
         return execute("js", code);
     }
 
-    /**
-     * Normalizes language input (e.g., 'javascript' -> 'js', 'py' -> 'python')
-     */
     private String normalizeLanguage(String lang) {
         if (lang == null) return null;
         String clean = lang.trim().toLowerCase();

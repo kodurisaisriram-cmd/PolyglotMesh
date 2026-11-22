@@ -6,45 +6,43 @@ import com.polyglotmesh.service.PolyglotExecutionService;
 
 public class Main {
     public static void main(String[] args) {
-        
-        PolyglotExecutionService executionService = new PolyglotExecutionService();
+        PolyglotExecutionService service = new PolyglotExecutionService();
 
-        // 1. Test Python execution via Service
-        System.out.println("[Test 1] Calling executionService for Python:");
-        ExecutionRequest pythonRequest = new ExecutionRequest(
-            "python",
-            "base_price = 100\n" +
-            "demand = 1.8\n" +
-            "print(f'Calculated price: ${base_price * demand}')"
-        );
-        ExecutionResponse pythonResponse = executionService.execute(pythonRequest);
-        printResponse(pythonResponse);
+        // Case 1: Valid Python code
+        System.out.println("[Case 1] Valid Python Code:");
+        ExecutionResponse r1 = service.execute("python", "print('Hello, PolyglotMesh!')");
+        printResult(r1);
 
-        // 2. Test JavaScript execution via Service
-        System.out.println("[Test 2] Calling executionService for JavaScript:");
-        ExecutionRequest jsRequest = new ExecutionRequest(
-            "javascript",
-            "const userRole = 'admin';\n" +
-            "console.log(`Access granted for role: ${userRole.toUpperCase()}`);"
-        );
-        ExecutionResponse jsResponse = executionService.execute(jsRequest);
-        printResponse(jsResponse);
+        // Case 2: Python Syntax Error (Missing closing parenthesis)
+        System.out.println("[Case 2] Python Syntax Error (unclosed bracket):");
+        ExecutionResponse r2 = service.execute("python", "print('Broken code");
+        printResult(r2);
 
-        // 3. Test Unsupported Language Check
-        System.out.println("[Test 3] Testing validation with unsupported language:");
-        ExecutionResponse invalidResponse = executionService.execute("ruby", "puts 'hello'");
-        printResponse(invalidResponse);
+        // Case 3: Python Runtime Error (Division by Zero)
+        System.out.println("[Case 3] Python Runtime Error (Division by Zero):");
+        ExecutionResponse r3 = service.execute("python", "result = 100 / 0");
+        printResult(r3);
 
-         }
+        // Case 4: JavaScript Runtime Error (Calling undefined function)
+        System.out.println("[Case 4] JavaScript Runtime Error (Undefined reference):");
+        ExecutionResponse r4 = service.execute("js", "calculateNonExistentTax(500);");
+        printResult(r4);
 
-    private static void printResponse(ExecutionResponse response) {
-        System.out.println("  Status : " + (response.isSuccess() ? "SUCCESS " : "FAILED "));
-        System.out.println("  Lang   : " + response.getLanguage());
-        System.out.println("  Time   : " + response.getExecutionTimeMs() + " ms");
-        if (response.isSuccess()) {
-            System.out.println("  Output : " + response.getOutput());
+        // Case 5: Empty Code Submission
+        System.out.println("[Case 5] Empty Code Submission:");
+        ExecutionResponse r5 = service.execute("python", "   ");
+        printResult(r5);
+
+        }
+
+    private static void printResult(ExecutionResponse res) {
+        System.out.println("  Success : " + (res.isSuccess() ? "YES" : "NO (Handled gracefully)"));
+        System.out.println("  Lang    : " + res.getLanguage());
+        System.out.println("  Time    : " + res.getExecutionTimeMs() + " ms");
+        if (res.isSuccess()) {
+            System.out.println("  Output  : " + res.getOutput());
         } else {
-            System.out.println("  Error  : " + response.getError());
+            System.out.println("  Error   : " + res.getError());
         }
         System.out.println();
     }
