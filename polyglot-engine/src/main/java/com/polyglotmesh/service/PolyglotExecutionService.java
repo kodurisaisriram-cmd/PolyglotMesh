@@ -3,6 +3,7 @@ package com.polyglotmesh.service;
 import com.polyglotmesh.model.ExecutionRequest;
 import com.polyglotmesh.model.ExecutionResponse;
 import org.graalvm.polyglot.Context;
+import org.graalvm.polyglot.HostAccess;
 import org.graalvm.polyglot.PolyglotException;
 import org.graalvm.polyglot.Value;
 
@@ -21,7 +22,6 @@ public class PolyglotExecutionService {
     public ExecutionResponse execute(String language, String code) {
         long startTime = System.currentTimeMillis();
 
-        // 1. Validate Language
         String langId = normalizeLanguage(language);
         if (langId == null) {
             long timeTaken = System.currentTimeMillis() - startTime;
@@ -29,7 +29,6 @@ public class PolyglotExecutionService {
                     "Unsupported language: '" + language + "'. Supported: python, js", timeTaken);
         }
 
-        // 2. Validate Code Payload
         if (code == null || code.trim().isEmpty()) {
             long timeTaken = System.currentTimeMillis() - startTime;
             return new ExecutionResponse(false, langId, null, "Code cannot be empty", timeTaken);
@@ -37,10 +36,14 @@ public class PolyglotExecutionService {
 
         ByteArrayOutputStream capturedOutput = new ByteArrayOutputStream();
 
-        // 3. Safe In-Memory Execution
+        // STRICT ENTERPRISE SECURITY SANDBOX CONFIGURATION
         try (Context context = Context.newBuilder(langId)
                 .out(capturedOutput)
                 .err(capturedOutput)
+                .allowNativeAccess(false)       // BLOCKS native C/C++ library loading
+                .allowCreateProcess(false)      // BLOCKS subprocess spawning (os.system, exec)
+                .allowCreateThread(false)       // BLOCKS spawning background threads
+                .allowHostAccess(HostAccess.NONE) // BLOCKS Java reflection access
                 .build()) {
 
             Value evalResult = context.eval(langId, code);
@@ -56,41 +59,36 @@ public class PolyglotExecutionService {
             long executionTimeMs = System.currentTimeMillis() - startTime;
             String errorMessage;
 
-            if (pe.isSyntaxError()) {
+            // Detect sandbox security violation
+            if (pe.getMessage().toLowerCase().contains("denied") || 
+                pe.getMessage().toLowerCase().contains("permission") ||
+                pe.getMessage().toLowerCase().contains("operation not permitted") ||
+                pe.getMessage().toLowerCase().contains("security")) {
+                errorMessage = "[SECURITY SANDBOX BLOCKED] " + pe.getMessage();
+            } else if (pe.isSyntaxError()) {
                 errorMessage = "[Syntax Error] " + pe.getMessage();
             } else if (pe.isGuestException()) {
                 errorMessage = "[Runtime Error] " + pe.getMessage();
-            } else if (pe.isCancelled()) {
-                errorMessage = "[Timeout Error] Execution was cancelled or timed out.";
             } else {
                 errorMessage = "[Execution Error] " + pe.getMessage();
             }
 
             return new ExecutionResponse(false, langId, null, errorMessage, executionTimeMs);
 
+        } catch (SecurityException se) {
+            long executionTimeMs = System.currentTimeMillis() - startTime;
+            return new ExecutionResponse(false, langId, null, "[SECURITY VIOLATION] " + se.getMessage(), executionTimeMs);
         } catch (Exception e) {
             long executionTimeMs = System.currentTimeMillis() - startTime;
             return new ExecutionResponse(false, langId, null, "[Internal Error] " + e.getMessage(), executionTimeMs);
         }
     }
 
-    public ExecutionResponse executePython(String code) {
-        return execute("python", code);
-    }
-
-    public ExecutionResponse executeJavaScript(String code) {
-        return execute("js", code);
-    }
-
     private String normalizeLanguage(String lang) {
         if (lang == null) return null;
         String clean = lang.trim().toLowerCase();
-        if (clean.equals("python") || clean.equals("py")) {
-            return "python";
-        }
-        if (clean.equals("javascript") || clean.equals("js")) {
-            return "js";
-        }
+        if (clean.equals("python") || clean.equals("py")) return "python";
+        if (clean.equals("javascript") || clean.equals("js")) return "js";
         return null;
     }
 }

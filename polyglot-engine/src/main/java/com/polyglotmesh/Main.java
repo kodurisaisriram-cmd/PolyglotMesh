@@ -1,6 +1,5 @@
 package com.polyglotmesh;
 
-import com.polyglotmesh.model.ExecutionRequest;
 import com.polyglotmesh.model.ExecutionResponse;
 import com.polyglotmesh.service.PolyglotExecutionService;
 
@@ -8,42 +7,39 @@ public class Main {
     public static void main(String[] args) {
         PolyglotExecutionService service = new PolyglotExecutionService();
 
-        // Case 1: Valid Python code
-        System.out.println("[Case 1] Valid Python Code:");
-        ExecutionResponse r1 = service.execute("python", "print('Hello, PolyglotMesh!')");
-        printResult(r1);
+        // Test 1: Safe Math & Logic (Should SUCCEED)
+        System.out.println("[Test 1] Safe Python Algorithm:");
+        ExecutionResponse r1 = service.execute("python", "x = 50 * 3\nprint(f'Safe Result: {x}')");
+        printAudit(r1);
 
-        // Case 2: Python Syntax Error (Missing closing parenthesis)
-        System.out.println("[Case 2] Python Syntax Error (unclosed bracket):");
-        ExecutionResponse r2 = service.execute("python", "print('Broken code");
-        printResult(r2);
+        // Test 2: Malicious Attack - Host File System Read (Should be BLOCKED)
+        System.out.println("[Test 2] Malicious File System Access Attempt:");
+        String fileAttackCode = "with open('C:\\\\Windows\\\\System32\\\\drivers\\\\etc\\\\hosts', 'r') as f:\n    print(f.read())";
+        ExecutionResponse r2 = service.execute("python", fileAttackCode);
+        printAudit(r2);
 
-        // Case 3: Python Runtime Error (Division by Zero)
-        System.out.println("[Case 3] Python Runtime Error (Division by Zero):");
-        ExecutionResponse r3 = service.execute("python", "result = 100 / 0");
-        printResult(r3);
+        // Test 3: Malicious Attack - OS Command Execution (Should be BLOCKED)
+        System.out.println("[Test 3] Malicious OS Command Spawn Attempt:");
+        String osAttackCode = "import os\nos.system('calc.exe')";
+        ExecutionResponse r3 = service.execute("python", osAttackCode);
+        printAudit(r3);
 
-        // Case 4: JavaScript Runtime Error (Calling undefined function)
-        System.out.println("[Case 4] JavaScript Runtime Error (Undefined reference):");
-        ExecutionResponse r4 = service.execute("js", "calculateNonExistentTax(500);");
-        printResult(r4);
+        // Test 4: Malicious Attack - Network Socket Connection (Should be BLOCKED)
+        System.out.println("[Test 4] Malicious Network Socket Attempt:");
+        String socketAttackCode = "import socket\ns = socket.socket(socket.AF_INET, socket.SOCK_STREAM)\ns.connect(('www.google.com', 80))";
+        ExecutionResponse r4 = service.execute("python", socketAttackCode);
+        printAudit(r4);
 
-        // Case 5: Empty Code Submission
-        System.out.println("[Case 5] Empty Code Submission:");
-        ExecutionResponse r5 = service.execute("python", "   ");
-        printResult(r5);
+       }
 
-        }
-
-    private static void printResult(ExecutionResponse res) {
-        System.out.println("  Success : " + (res.isSuccess() ? "YES" : "NO (Handled gracefully)"));
-        System.out.println("  Lang    : " + res.getLanguage());
-        System.out.println("  Time    : " + res.getExecutionTimeMs() + " ms");
+    private static void printAudit(ExecutionResponse res) {
         if (res.isSuccess()) {
-            System.out.println("  Output  : " + res.getOutput());
+            System.out.println("  Status : ALLOWED");
+            System.out.println("  Output : " + res.getOutput());
         } else {
-            System.out.println("  Error   : " + res.getError());
+            System.out.println("  Status : BLOCKED BY SANDBOX");
+            System.out.println("  Reason : " + res.getError());
         }
-        System.out.println();
+        System.out.println("  Latency: " + res.getExecutionTimeMs() + " ms\n");
     }
 }
