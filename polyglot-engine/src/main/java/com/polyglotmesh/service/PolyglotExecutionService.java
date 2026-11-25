@@ -9,17 +9,27 @@ import org.graalvm.polyglot.Value;
 
 import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
 
 public class PolyglotExecutionService {
+
+    private final ScheduledExecutorService watchdog = Executors.newScheduledThreadPool(2);
 
     public ExecutionResponse execute(ExecutionRequest request) {
         if (request == null) {
             return new ExecutionResponse(false, null, null, "ExecutionRequest cannot be null", 0);
         }
-        return execute(request.getLanguage(), request.getCode());
+        return execute(request.getLanguage(), request.getCode(), request.getTimeoutMs());
     }
 
     public ExecutionResponse execute(String language, String code) {
+        return execute(language, code, 10000); // Default 10s timeout
+    }
+
+    public ExecutionResponse execute(String language, String code, long timeoutMs) {
         long startTime = System.currentTimeMillis();
 
         String langId = normalizeLanguage(language);
@@ -36,17 +46,27 @@ public class PolyglotExecutionService {
 
         ByteArrayOutputStream capturedOutput = new ByteArrayOutputStream();
 
-        // STRICT ENTERPRISE SECURITY SANDBOX CONFIGURATION
+        // Safe Context with timeout watchdog
         try (Context context = Context.newBuilder(langId)
                 .out(capturedOutput)
                 .err(capturedOutput)
-                .allowNativeAccess(false)       // BLOCKS native C/C++ library loading
-                .allowCreateProcess(false)      // BLOCKS subprocess spawning (os.system, exec)
-                .allowCreateThread(false)       // BLOCKS spawning background threads
-                .allowHostAccess(HostAccess.NONE) // BLOCKS Java reflection access
+                .allowNativeAccess(false)
+                .allowCreateProcess(false)
+                .allowCreateThread(false)
+                .allowHostAccess(HostAccess.NONE)
                 .build()) {
 
-            Value evalResult = context.eval(langId, code);
+            // Schedule the timeout watchdog
+            ScheduledFuture<?> cancelTask = watchdog.schedule(() -> {
+                context.close(true); // Force kill if timeout exceeded
+            }, timeoutMs, TimeUnit.MILLISECONDS);
+
+            Value evalResult;
+            try {
+                evalResult = context.eval(langId, code);
+            } finally {
+                cancelTask.cancel(false); // Cancel timer if code finishes normally
+            }
 
             String stdoutOutput = capturedOutput.toString(StandardCharsets.UTF_8).trim();
             String finalOutput = !stdoutOutput.isEmpty() ? stdoutOutput : 
@@ -59,11 +79,12 @@ public class PolyglotExecutionService {
             long executionTimeMs = System.currentTimeMillis() - startTime;
             String errorMessage;
 
-            // Detect sandbox security violation
-            if (pe.getMessage().toLowerCase().contains("denied") || 
-                pe.getMessage().toLowerCase().contains("permission") ||
-                pe.getMessage().toLowerCase().contains("operation not permitted") ||
-                pe.getMessage().toLowerCase().contains("security")) {
+            if (pe.isCancelled()) {
+                errorMessage = String.format("[TIMEOUT ERROR] Execution exceeded maximum time limit of %d ms. Forcefully aborted.", timeoutMs);
+            } else if (pe.getMessage().toLowerCase().contains("denied") || 
+                       pe.getMessage().toLowerCase().contains("permission") ||
+                       pe.getMessage().toLowerCase().contains("operation not permitted") ||
+                       pe.getMessage().toLowerCase().contains("security")) {
                 errorMessage = "[SECURITY SANDBOX BLOCKED] " + pe.getMessage();
             } else if (pe.isSyntaxError()) {
                 errorMessage = "[Syntax Error] " + pe.getMessage();
@@ -75,9 +96,6 @@ public class PolyglotExecutionService {
 
             return new ExecutionResponse(false, langId, null, errorMessage, executionTimeMs);
 
-        } catch (SecurityException se) {
-            long executionTimeMs = System.currentTimeMillis() - startTime;
-            return new ExecutionResponse(false, langId, null, "[SECURITY VIOLATION] " + se.getMessage(), executionTimeMs);
         } catch (Exception e) {
             long executionTimeMs = System.currentTimeMillis() - startTime;
             return new ExecutionResponse(false, langId, null, "[Internal Error] " + e.getMessage(), executionTimeMs);

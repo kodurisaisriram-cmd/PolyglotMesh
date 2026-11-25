@@ -1,5 +1,6 @@
 package com.polyglotmesh;
 
+import com.polyglotmesh.model.ExecutionRequest;
 import com.polyglotmesh.model.ExecutionResponse;
 import com.polyglotmesh.service.PolyglotExecutionService;
 
@@ -7,39 +8,42 @@ public class Main {
     public static void main(String[] args) {
         PolyglotExecutionService service = new PolyglotExecutionService();
 
-        // Test 1: Safe Math & Logic (Should SUCCEED)
-        System.out.println("[Test 1] Safe Python Algorithm:");
-        ExecutionResponse r1 = service.execute("python", "x = 50 * 3\nprint(f'Safe Result: {x}')");
-        printAudit(r1);
+        // Test 1: Normal Python Script (Allowed 15s for initial cold start)
+        System.out.println("[Test 1] Normal Python Script (Cold Start):");
+        ExecutionRequest normalPython = new ExecutionRequest("python", "print('Fast script executed!')", 15000);
+        ExecutionResponse r1 = service.execute(normalPython);
+        printResult(r1);
 
-        // Test 2: Malicious Attack - Host File System Read (Should be BLOCKED)
-        System.out.println("[Test 2] Malicious File System Access Attempt:");
-        String fileAttackCode = "with open('C:\\\\Windows\\\\System32\\\\drivers\\\\etc\\\\hosts', 'r') as f:\n    print(f.read())";
-        ExecutionResponse r2 = service.execute("python", fileAttackCode);
-        printAudit(r2);
+        // Test 2: Warm Python Script (Runs in milliseconds!)
+        System.out.println("[Test 2] Warm Python Script:");
+        ExecutionRequest warmPython = new ExecutionRequest("python", "print('Warm Python executed instantly!')", 5000);
+        ExecutionResponse r2 = service.execute(warmPython);
+        printResult(r2);
 
-        // Test 3: Malicious Attack - OS Command Execution (Should be BLOCKED)
-        System.out.println("[Test 3] Malicious OS Command Spawn Attempt:");
-        String osAttackCode = "import os\nos.system('calc.exe')";
-        ExecutionResponse r3 = service.execute("python", osAttackCode);
-        printAudit(r3);
+        // Test 3: Python Infinite Loop Attack (while True: pass)
+        System.out.println("[Test 3] Python Infinite Loop Attack (while True: pass):");
+        System.out.println("  (Watchdog set to 3000 ms. Aborting in 3 seconds...)");
+        ExecutionRequest infinitePython = new ExecutionRequest("python", "while True:\n    pass", 3000);
+        ExecutionResponse r3 = service.execute(infinitePython);
+        printResult(r3);
 
-        // Test 4: Malicious Attack - Network Socket Connection (Should be BLOCKED)
-        System.out.println("[Test 4] Malicious Network Socket Attempt:");
-        String socketAttackCode = "import socket\ns = socket.socket(socket.AF_INET, socket.SOCK_STREAM)\ns.connect(('www.google.com', 80))";
-        ExecutionResponse r4 = service.execute("python", socketAttackCode);
-        printAudit(r4);
+        // Test 4: JavaScript Infinite Loop Attack (for(;;){})
+        System.out.println("[Test 4] JavaScript Infinite Loop Attack (for(;;){}):");
+        System.out.println("  (Watchdog set to 2000 ms. Aborting in 2 seconds...)");
+        ExecutionRequest infiniteJs = new ExecutionRequest("js", "for(;;){}", 2000);
+        ExecutionResponse r4 = service.execute(infiniteJs);
+        printResult(r4);
 
-       }
-
-    private static void printAudit(ExecutionResponse res) {
-        if (res.isSuccess()) {
-            System.out.println("  Status : ALLOWED");
-            System.out.println("  Output : " + res.getOutput());
-        } else {
-            System.out.println("  Status : BLOCKED BY SANDBOX");
-            System.out.println("  Reason : " + res.getError());
         }
-        System.out.println("  Latency: " + res.getExecutionTimeMs() + " ms\n");
+
+    private static void printResult(ExecutionResponse res) {
+        System.out.println("  Status   : " + (res.isSuccess() ? "SUCCESS" : "STOPPED / TIMED OUT"));
+        System.out.println("  Duration : " + res.getExecutionTimeMs() + " ms");
+        if (res.isSuccess()) {
+            System.out.println("  Output   : " + res.getOutput());
+        } else {
+            System.out.println("  Error    : " + res.getError());
+        }
+        System.out.println();
     }
 }
