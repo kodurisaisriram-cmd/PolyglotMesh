@@ -9,6 +9,7 @@ import org.graalvm.polyglot.Value;
 
 import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
+import java.util.Map;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
@@ -26,10 +27,17 @@ public class PolyglotExecutionService {
     }
 
     public ExecutionResponse execute(String language, String code) {
-        return execute(language, code, 10000); // Default 10s timeout
+        return execute(language, code, 10000);
     }
 
     public ExecutionResponse execute(String language, String code, long timeoutMs) {
+        return executeWithData(language, code, null, timeoutMs);
+    }
+
+    /**
+     * Executes code with zero-serialization in-memory data bindings (Java HashMap <-> Python/JS)
+     */
+    public ExecutionResponse executeWithData(String language, String code, Map<String, Object> dataBindings, long timeoutMs) {
         long startTime = System.currentTimeMillis();
 
         String langId = normalizeLanguage(language);
@@ -46,26 +54,30 @@ public class PolyglotExecutionService {
 
         ByteArrayOutputStream capturedOutput = new ByteArrayOutputStream();
 
-        // Safe Context with timeout watchdog
+        // Safe Context allowing in-memory Host Access for Map sharing, while strictly blocking disk/network
         try (Context context = Context.newBuilder(langId)
                 .out(capturedOutput)
                 .err(capturedOutput)
                 .allowNativeAccess(false)
                 .allowCreateProcess(false)
                 .allowCreateThread(false)
-                .allowHostAccess(HostAccess.NONE)
+                .allowHostAccess(HostAccess.ALL) // Allows Python to read/write Java Map objects in RAM
                 .build()) {
 
-            // Schedule the timeout watchdog
+            // Bind Java HashMap into guest language global scope if provided
+            if (dataBindings != null) {
+                context.getBindings(langId).putMember("contextData", dataBindings);
+            }
+
             ScheduledFuture<?> cancelTask = watchdog.schedule(() -> {
-                context.close(true); // Force kill if timeout exceeded
+                context.close(true);
             }, timeoutMs, TimeUnit.MILLISECONDS);
 
             Value evalResult;
             try {
                 evalResult = context.eval(langId, code);
             } finally {
-                cancelTask.cancel(false); // Cancel timer if code finishes normally
+                cancelTask.cancel(false);
             }
 
             String stdoutOutput = capturedOutput.toString(StandardCharsets.UTF_8).trim();
