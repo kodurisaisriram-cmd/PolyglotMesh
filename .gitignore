@@ -155,3 +155,66 @@ vite.config.ts.timestamp-*
 .nx/cache
 .nx/workspace-data
 .nx/migrate-runs
+
+# ==============================================================================
+# Java & Maven Exclusions
+# ==============================================================================
+*.class
+target/
+**/target/
+pom.xml.tag
+pom.xml.releaseBackup
+pom.xml.versionsBackup
+pom.xml.next
+release.properties
+dependency-reduced-pom.xml
+buildNumber.properties
+.mvn/timing.properties
+.mvn/wrapper/maven-wrapper.jar
+
+# JVM & Crash Logs
+hs_err_pid*
+replay_pid*
+
+# ==============================================================================
+# Eclipse IDE Exclusions
+# ==============================================================================
+.metadata
+bin/
+tmp/
+*.tmp
+*.bak
+*.swp
+*~.nib
+local.properties
+.settings/
+.loadpath
+.recommenders
+.classpath
+.project
+
+# ==============================================================================
+# IntelliJ IDEA Exclusions
+# ==============================================================================
+.idea/
+*.iml
+*.ipr
+*.iws
+out/
+
+# ==============================================================================
+# Visual Studio Code Exclusions
+# ==============================================================================
+.vscode/
+
+# ==============================================================================
+# Operating System & Local Configuration
+# ==============================================================================
+.DS_Store
+Thumbs.db
+ehthumbs.db
+desktop.ini
+application-local.yml
+application-local.properties
+*.local
+
