@@ -1,0 +1,114 @@
+package com.polyglotmesh.webflux.controller;
+
+import com.polyglotmesh.webflux.dto.ExecutionRequestDto;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.web.reactive.AutoConfigureWebTestClient;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.http.MediaType;
+import org.springframework.test.web.reactive.server.WebTestClient;
+
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@AutoConfigureWebTestClient
+class ExecutionControllerTest {
+
+    @Autowired
+    private WebTestClient webTestClient;
+
+    @Test
+    @DisplayName("GET /api/v1/execute/status returns HTTP 200 with engine integration state")
+    void testEngineStatusEndpoint() {
+        webTestClient.get()
+                .uri("/api/v1/execute/status")
+                .accept(MediaType.APPLICATION_JSON)
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody()
+                .jsonPath("$.engineModule").isEqualTo("com.polyglotmesh:polyglot-engine")
+                .jsonPath("$.supportedLanguages[0]").isEqualTo("python")
+                .jsonPath("$.supportedLanguages[1]").isEqualTo("js")
+                .jsonPath("$.reactiveBridge").isEqualTo("Schedulers.boundedElastic");
+    }
+
+    @Test
+    @DisplayName("POST /api/v1/execute with missing language returns HTTP 400 Bad Request")
+    void testExecuteMissingLanguageReturns400() {
+        ExecutionRequestDto invalidRequest = new ExecutionRequestDto(null, "print('Hello')", 5000L);
+
+        webTestClient.post()
+                .uri("/api/v1/execute")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(invalidRequest)
+                .exchange()
+                .expectStatus().isBadRequest()
+                .expectBody()
+                .jsonPath("$.status").isEqualTo(400)
+                .jsonPath("$.error").isEqualTo("Validation Failed")
+                .jsonPath("$.details").isNotEmpty();
+    }
+
+    @Test
+    @DisplayName("POST /api/v1/execute with unsupported language returns HTTP 400 Bad Request")
+    void testExecuteUnsupportedLanguageReturns400() {
+        ExecutionRequestDto unsupportedLanguageRequest = new ExecutionRequestDto("ruby", "puts 'Hello'", 5000L);
+
+        webTestClient.post()
+                .uri("/api/v1/execute")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(unsupportedLanguageRequest)
+                .exchange()
+                .expectStatus().isBadRequest()
+                .expectBody()
+                .jsonPath("$.status").isEqualTo(400)
+                .jsonPath("$.error").isEqualTo("Validation Failed");
+    }
+
+    @Test
+    @DisplayName("POST /api/v1/execute with blank code returns HTTP 400 Bad Request")
+    void testExecuteBlankCodeReturns400() {
+        ExecutionRequestDto blankCodeRequest = new ExecutionRequestDto("python", "   ", 5000L);
+
+        webTestClient.post()
+                .uri("/api/v1/execute")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(blankCodeRequest)
+                .exchange()
+                .expectStatus().isBadRequest()
+                .expectBody()
+                .jsonPath("$.status").isEqualTo(400)
+                .jsonPath("$.error").isEqualTo("Validation Failed");
+    }
+
+    @Test
+    @DisplayName("POST /api/v1/execute with timeout less than 100 ms returns HTTP 400 Bad Request")
+    void testExecuteInvalidTimeoutReturns400() {
+        ExecutionRequestDto invalidTimeoutRequest = new ExecutionRequestDto("python", "print('Hello')", 50L);
+
+        webTestClient.post()
+                .uri("/api/v1/execute")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(invalidTimeoutRequest)
+                .exchange()
+                .expectStatus().isBadRequest()
+                .expectBody()
+                .jsonPath("$.status").isEqualTo(400);
+    }
+
+    @Test
+    @DisplayName("POST /api/v1/execute with valid payload when engine pending returns HTTP 503 Service Unavailable")
+    void testExecuteWhenEnginePendingReturns503() {
+        ExecutionRequestDto validRequest = new ExecutionRequestDto("python", "print('Hello')", 5000L);
+
+        webTestClient.post()
+                .uri("/api/v1/execute")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(validRequest)
+                .exchange()
+                .expectStatus().isEqualTo(503)
+                .expectBody()
+                .jsonPath("$.status").isEqualTo(503)
+                .jsonPath("$.error").isEqualTo("Engine Service Unavailable")
+                .jsonPath("$.message").value(org.hamcrest.Matchers.containsString("polyglot-engine"));
+    }
+}
