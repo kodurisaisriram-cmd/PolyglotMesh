@@ -35,6 +35,7 @@ public class GlobalExceptionHandler {
 
         ErrorResponse errorResponse = new ErrorResponse(
                 HttpStatus.BAD_REQUEST.value(),
+                "VALIDATION_FAILED",
                 "Validation Failed",
                 "Request body contains invalid fields",
                 path,
@@ -51,9 +52,11 @@ public class GlobalExceptionHandler {
 
         ErrorResponse errorResponse = new ErrorResponse(
                 HttpStatus.BAD_REQUEST.value(),
+                "MALFORMED_REQUEST",
                 "Bad Request",
                 "Malformed request body or invalid parameters: " + ex.getReason(),
-                path
+                path,
+                List.of(ex.getMessage() != null ? ex.getMessage() : "Malformed input payload")
         );
         return Mono.just(ResponseEntity.status(HttpStatus.BAD_REQUEST).body(errorResponse));
     }
@@ -66,9 +69,11 @@ public class GlobalExceptionHandler {
 
         ErrorResponse errorResponse = new ErrorResponse(
                 HttpStatus.BAD_REQUEST.value(),
+                "UNSUPPORTED_LANGUAGE",
                 "Unsupported Language",
                 ex.getMessage(),
-                path
+                path,
+                List.of(ex.getMessage())
         );
         return Mono.just(ResponseEntity.status(HttpStatus.BAD_REQUEST).body(errorResponse));
     }
@@ -81,9 +86,11 @@ public class GlobalExceptionHandler {
 
         ErrorResponse errorResponse = new ErrorResponse(
                 HttpStatus.SERVICE_UNAVAILABLE.value(),
+                "ENGINE_UNAVAILABLE",
                 "Engine Service Unavailable",
                 ex.getMessage(),
-                path
+                path,
+                List.of(ex.getMessage())
         );
         return Mono.just(ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(errorResponse));
     }
@@ -96,9 +103,11 @@ public class GlobalExceptionHandler {
 
         ErrorResponse errorResponse = new ErrorResponse(
                 HttpStatus.INTERNAL_SERVER_ERROR.value(),
+                "INTERNAL_SERVER_ERROR",
                 "Internal Server Error",
                 "An unexpected server error occurred. Please contact the administrator.",
-                path
+                path,
+                List.of()
         );
         return Mono.just(ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(errorResponse));
     }

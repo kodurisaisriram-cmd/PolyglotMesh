@@ -96,6 +96,87 @@ class ExecutionControllerTest {
     }
 
     @Test
+    @DisplayName("POST /api/v1/execute with timeout exceeding 30000 ms returns HTTP 400 Bad Request")
+    void testExecuteTimeoutExceedingMaxReturns400() {
+        ExecutionRequestDto excessiveTimeoutRequest = new ExecutionRequestDto("python", "print('Hello')", 35000L);
+
+        webTestClient.post()
+                .uri("/api/v1/execute")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(excessiveTimeoutRequest)
+                .exchange()
+                .expectStatus().isBadRequest()
+                .expectBody()
+                .jsonPath("$.status").isEqualTo(400)
+                .jsonPath("$.error").isEqualTo("Validation Failed");
+    }
+
+    @Test
+    @DisplayName("POST /api/v1/execute with code exceeding 20000 characters returns HTTP 400 Bad Request")
+    void testExecuteExcessiveCodeLengthReturns400() {
+        String oversizedCode = "a".repeat(20001);
+        ExecutionRequestDto oversizedRequest = new ExecutionRequestDto("python", oversizedCode, 5000L);
+
+        webTestClient.post()
+                .uri("/api/v1/execute")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(oversizedRequest)
+                .exchange()
+                .expectStatus().isBadRequest()
+                .expectBody()
+                .jsonPath("$.status").isEqualTo(400)
+                .jsonPath("$.error").isEqualTo("Validation Failed");
+    }
+
+    @Test
+    @DisplayName("POST /api/v1/execute with malformed JSON body returns HTTP 400 Bad Request")
+    void testExecuteMalformedJsonReturns400() {
+        String malformedJson = "{ language: 'python', code: 'print(1)' "; // Missing closing brace
+
+        webTestClient.post()
+                .uri("/api/v1/execute")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(malformedJson)
+                .exchange()
+                .expectStatus().isBadRequest()
+                .expectBody()
+                .jsonPath("$.status").isEqualTo(400)
+                .jsonPath("$.error").isEqualTo("Bad Request");
+    }
+
+    @Test
+    @DisplayName("POST /api/v1/execute with valid alias 'py' passes validation")
+    void testExecuteWithPyAliasPassesValidation() {
+        ExecutionRequestDto pyRequest = new ExecutionRequestDto("py", "print('Hello from py')", 5000L);
+
+        webTestClient.post()
+                .uri("/api/v1/execute")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(pyRequest)
+                .exchange()
+                .expectStatus().isEqualTo(503) // Passes validation, reaches engine bridge (pending merge)
+                .expectBody()
+                .jsonPath("$.status").isEqualTo(503)
+                .jsonPath("$.error").isEqualTo("Engine Service Unavailable");
+    }
+
+    @Test
+    @DisplayName("POST /api/v1/execute with valid alias 'js' passes validation")
+    void testExecuteWithJsAliasPassesValidation() {
+        ExecutionRequestDto jsRequest = new ExecutionRequestDto("js", "console.log('Hello from js');", 5000L);
+
+        webTestClient.post()
+                .uri("/api/v1/execute")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(jsRequest)
+                .exchange()
+                .expectStatus().isEqualTo(503) // Passes validation, reaches engine bridge (pending merge)
+                .expectBody()
+                .jsonPath("$.status").isEqualTo(503)
+                .jsonPath("$.error").isEqualTo("Engine Service Unavailable");
+    }
+
+    @Test
     @DisplayName("POST /api/v1/execute with valid payload when engine pending returns HTTP 503 Service Unavailable")
     void testExecuteWhenEnginePendingReturns503() {
         ExecutionRequestDto validRequest = new ExecutionRequestDto("python", "print('Hello')", 5000L);

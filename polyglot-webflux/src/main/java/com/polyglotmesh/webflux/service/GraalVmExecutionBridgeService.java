@@ -27,12 +27,14 @@ public class GraalVmExecutionBridgeService implements ExecutionService {
     private static final String ENGINE_SERVICE_CLASS = "com.polyglotmesh.service.PolyglotExecutionService";
     private static final String ENGINE_REQUEST_CLASS = "com.polyglotmesh.model.ExecutionRequest";
 
+    private final LanguageService languageService;
     private final Object engineInstance;
     private final Method executeMethod;
     private final Constructor<?> requestConstructor;
     private final boolean engineAvailable;
 
-    public GraalVmExecutionBridgeService() {
+    public GraalVmExecutionBridgeService(LanguageService languageService) {
+        this.languageService = languageService;
         Object instance = null;
         Method method = null;
         Constructor<?> constructor = null;
@@ -58,6 +60,10 @@ public class GraalVmExecutionBridgeService implements ExecutionService {
         this.executeMethod = method;
         this.requestConstructor = constructor;
         this.engineAvailable = available;
+    }
+
+    public GraalVmExecutionBridgeService() {
+        this(new LanguageService(new com.polyglotmesh.webflux.config.PolyglotEngineProperties()));
     }
 
     @Override
@@ -89,8 +95,9 @@ public class GraalVmExecutionBridgeService implements ExecutionService {
                 requestDto.getLanguage(), requestDto.getTimeoutMs(), Thread.currentThread().getName());
 
         try {
+            String engineLanguage = languageService.toEngineLanguageId(requestDto.getLanguage());
             Object engineRequest = requestConstructor.newInstance(
-                    requestDto.getLanguage(),
+                    engineLanguage,
                     requestDto.getCode(),
                     requestDto.getTimeoutMs()
             );
@@ -118,12 +125,8 @@ public class GraalVmExecutionBridgeService implements ExecutionService {
     }
 
     private void validateLanguage(String language) {
-        if (language == null) {
-            throw new UnsupportedLanguageException("null");
-        }
-        String clean = language.trim().toLowerCase();
-        if (!clean.equals("python") && !clean.equals("py") && !clean.equals("javascript") && !clean.equals("js")) {
-            throw new UnsupportedLanguageException(language);
+        if (!languageService.isSupported(language)) {
+            throw new UnsupportedLanguageException(language != null ? language : "null");
         }
     }
 }

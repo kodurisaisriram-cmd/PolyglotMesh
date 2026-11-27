@@ -28,11 +28,12 @@ management:
 polyglot:
   engine:
     default-timeout-ms: 10000
-    max-timeout-ms: 60000
-    max-code-length: 65536
+    min-timeout-ms: 100
+    max-timeout-ms: 30000
+    max-code-length: 20000
     supported-languages:
       - python
-      - js
+      - javascript
 
 logging:
   level:

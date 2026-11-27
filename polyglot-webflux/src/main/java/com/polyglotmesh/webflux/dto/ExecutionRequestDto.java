@@ -15,16 +15,16 @@ public class ExecutionRequestDto {
     @NotBlank(message = "Language is required")
     @Pattern(
         regexp = "(?i)^(python|py|javascript|js)$",
-        message = "Unsupported language. Currently supported languages: python, js"
+        message = "Unsupported language. Currently supported languages: python, javascript (aliases: py, js)"
     )
     private String language;
 
     @NotBlank(message = "Code cannot be empty")
-    @Size(max = 65536, message = "Code size exceeds maximum limit of 64 KB (65536 characters)")
+    @Size(max = 20000, message = "Code size exceeds maximum limit of 20000 characters")
     private String code;
 
     @Min(value = 100, message = "Timeout must be at least 100 ms")
-    @Max(value = 60000, message = "Timeout cannot exceed 60000 ms (60 seconds)")
+    @Max(value = 30000, message = "Timeout cannot exceed 30000 ms (30 seconds)")
     private Long timeoutMs = 10000L; // Default 10 seconds timeout
 
     public ExecutionRequestDto() {
@@ -64,6 +64,25 @@ public class ExecutionRequestDto {
 
     public void setTimeoutMs(Long timeoutMs) {
         this.timeoutMs = (timeoutMs != null) ? timeoutMs : 10000L;
+    }
+
+    /**
+     * Returns the normalized canonical language identifier ("python" or "javascript").
+     *
+     * @return canonical language name, or original trimmed lower-case language string
+     */
+    public String getNormalizedLanguage() {
+        if (language == null) {
+            return null;
+        }
+        String clean = language.trim().toLowerCase();
+        if (clean.equals("python") || clean.equals("py")) {
+            return "python";
+        }
+        if (clean.equals("javascript") || clean.equals("js")) {
+            return "javascript";
+        }
+        return clean;
     }
 
     @Override

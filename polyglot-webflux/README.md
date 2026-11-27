@@ -111,12 +111,16 @@ polyglot-webflux/
     │   ├── java/com/polyglotmesh/webflux/
     │   │   ├── WebfluxApplication.java       # Spring Boot main entrypoint
     │   │   ├── config/
+    │   │   │   ├── PolyglotEngineProperties.java # Bounded execution properties
     │   │   │   └── WebFluxConfig.java        # CORS and WebFlux configuration
     │   │   ├── controller/
     │   │   │   ├── HealthController.java     # GET /api/v1/health reactive controller
+    │   │   │   ├── LanguageController.java   # GET /api/v1/languages supported runtimes
     │   │   │   └── ExecutionController.java  # POST /api/v1/execute & status controller
     │   │   ├── dto/
     │   │   │   ├── HealthResponse.java       # Health check DTO
+    │   │   │   ├── LanguageInfoDto.java      # Language metadata and Monaco mapping
+    │   │   │   ├── SupportedLanguagesResponse.java # GET /api/v1/languages payload
     │   │   │   ├── ExecutionRequestDto.java  # Validated execution request payload
     │   │   │   ├── ExecutionResponseDto.java # Execution outcome payload
     │   │   │   └── ErrorResponse.java        # Standardized API error payload
@@ -126,6 +130,7 @@ polyglot-webflux/
     │   │   │   └── GlobalExceptionHandler.java # Reactive @RestControllerAdvice
     │   │   └── service/
     │   │       ├── ExecutionService.java     # Reactive service interface
+    │   │       ├── LanguageService.java      # Normalization and language catalog
     │   │       └── GraalVmExecutionBridgeService.java # Non-blocking GraalVM bridge
     │   └── resources/
     │       └── application.yml               # Reactive server and logging configuration
@@ -134,8 +139,10 @@ polyglot-webflux/
             ├── WebfluxApplicationTests.java  # Spring context loading test
             ├── controller/
             │   ├── HealthControllerTest.java # WebTestClient health & actuator tests
+            │   ├── LanguageControllerTest.java # WebTestClient language endpoint tests
             │   └── ExecutionControllerTest.java # Validation & status tests
             └── service/
+                ├── LanguageServiceTest.java  # Normalization & alias unit tests
                 └── GraalVmExecutionBridgeServiceTest.java # StepVerifier reactive test
 ```
 
@@ -146,36 +153,44 @@ polyglot-webflux/
 ### Entrypoint & Configuration
 1. **`WebfluxApplication`**:
    Annotated with `@SpringBootApplication`. Boots the application context using `SpringApplication.run()` and launches the embedded Netty server on port 8080.
-2. **`WebFluxConfig`**:
+2. **`PolyglotEngineProperties`**:
+   Annotated with `@ConfigurationProperties(prefix = "polyglot.engine")`. Centralizes bounded execution defaults (default timeout: 10,000 ms, min timeout: 100 ms, max timeout: 30,000 ms, max code length: 20,000 characters).
+3. **`WebFluxConfig`**:
    Implements `WebFluxConfigurer`. Configures Cross-Origin Resource Sharing (CORS) to permit frontend requests from Vite/React (`http://localhost:5173`) and Next.js/React (`http://localhost:3000`).
 
 ### REST Controllers
-3. **`HealthController`**:
+4. **`HealthController`**:
    Exposes `GET /api/v1/health`. Returns `Mono<ResponseEntity<HealthResponse>>`. Demonstrates reactive non-blocking response streaming without thread pauses.
-4. **`ExecutionController`**:
+5. **`LanguageController`**:
+   Exposes `GET /api/v1/languages`. Returns `Mono<ResponseEntity<SupportedLanguagesResponse>>`. Supplies the frontend with supported runtimes (Python, JavaScript), accepted aliases (`py`, `js`), Monaco editor IDs, and execution limit boundaries.
+6. **`ExecutionController`**:
    Exposes `POST /api/v1/execute` and diagnostic `GET /api/v1/execute/status`. Validates payloads with Jakarta Bean Validation (`@Valid`) and passes requests to `ExecutionService`.
 
 ### Services & Concurrency Bridge
-5. **`ExecutionService`**:
+7. **`LanguageService`**:
+   Manages language normalization and aliases at the API boundary. Converts incoming aliases (e.g. `py` -> `python`, `js` -> `javascript`) and maps canonical languages to internal GraalVM engine identifiers (`javascript` -> `js`). Strictly rejects unsupported languages (e.g. Ruby, Java).
+8. **`ExecutionService`**:
    Defines the contract for non-blocking code execution (`Mono<ExecutionResponseDto> execute(ExecutionRequestDto requestDto)`).
-6. **`GraalVmExecutionBridgeService`**:
+9. **`GraalVmExecutionBridgeService`**:
    The architectural bridge. Detects whether `com.polyglotmesh.service.PolyglotExecutionService` exists on the classpath. If unlinked (engine pending branch merge), it cleanly throws `EngineUnavailableException`. When linked, it delegates execution on `Schedulers.boundedElastic()`.
 
 ### DTOs & Validation
-7. **`ExecutionRequestDto`**:
-   Validates incoming code snippets:
-   - `@NotBlank` for language and code.
-   - `@Pattern` restricting execution strictly to `python`, `py`, `javascript`, or `js`.
-   - `@Size(max = 65536)` preventing payload memory overflow (64 KB ceiling).
-   - `@Min(100)` and `@Max(60000)` validating execution timeout boundaries.
-8. **`ExecutionResponseDto`**:
-   Standardized response containing `success`, `language`, `output`, `error`, and `executionTimeMs`.
-9. **`HealthResponse`**:
-   Contains `status` ("UP"), `application` ("PolyglotMesh"), `module` ("polyglot-webflux"), and server `timestamp`.
+10. **`SupportedLanguagesResponse` & `LanguageInfoDto`**:
+    Expose language catalog details, Monaco editor modes, and configured bounds to frontend clients.
+11. **`ExecutionRequestDto`**:
+    Validates incoming code snippets:
+    - `@NotBlank` for language and code.
+    - `@Pattern` restricting execution strictly to `python`, `py`, `javascript`, or `js`.
+    - `@Size(max = 20000)` preventing payload memory overflow (20,000 characters ceiling).
+    - `@Min(100)` and `@Max(30000)` validating execution timeout boundaries (100 ms to 30,000 ms).
+12. **`ExecutionResponseDto`**:
+    Standardized response containing `success`, `language`, `output`, `error`, and `executionTimeMs`.
+13. **`HealthResponse`**:
+    Contains `status` ("UP"), `application` ("PolyglotMesh"), `module` ("polyglot-webflux"), and server `timestamp`.
 
 ### Exception Handling
-10. **`GlobalExceptionHandler`**:
-    Annotated with `@RestControllerAdvice`. Translates reactive validation errors (`WebExchangeBindException`), missing engine errors (`EngineUnavailableException`), and unhandled exceptions into uniform, predictable `ErrorResponse` JSON objects.
+14. **`GlobalExceptionHandler`**:
+    Annotated with `@RestControllerAdvice`. Translates reactive validation errors (`WebExchangeBindException`), malformed payloads (`ServerWebInputException`), missing engine errors (`EngineUnavailableException`), and unhandled exceptions into uniform, predictable `ErrorResponse` JSON objects containing `errorCode` and `success: false`.
 
 ---
 
@@ -263,7 +278,40 @@ The server binds to `http://127.0.0.1:8080`.
 }
 ```
 
-### 3. Engine Integration Status Diagnostic
+### 3. Supported Languages & Runtime Limits Endpoint (Week 2 Day 1)
+- **URL**: `GET http://localhost:8080/api/v1/languages`
+- **Headers**: `Accept: application/json`
+- **Expected Status**: `200 OK`
+- **Purpose**: Provides the frontend (React / Monaco Editor) with available runtime languages, accepted aliases, and execution boundaries.
+- **Sample Response**:
+```json
+{
+  "languages": [
+    {
+      "id": "python",
+      "name": "Python",
+      "aliases": ["python", "py"],
+      "engineLanguage": "python",
+      "monacoLanguage": "python",
+      "version": "3.11 (GraalPy)"
+    },
+    {
+      "id": "javascript",
+      "name": "JavaScript",
+      "aliases": ["javascript", "js"],
+      "engineLanguage": "js",
+      "monacoLanguage": "javascript",
+      "version": "ES2023 (GraalJS)"
+    }
+  ],
+  "defaultTimeoutMs": 10000,
+  "minTimeoutMs": 100,
+  "maxTimeoutMs": 30000,
+  "maxCodeLength": 20000
+}
+```
+
+### 4. Engine Integration Status Diagnostic
 - **URL**: `GET http://localhost:8080/api/v1/execute/status`
 - **Expected Status**: `200 OK`
 - **Sample Response**:
@@ -277,14 +325,18 @@ The server binds to `http://127.0.0.1:8080`.
 }
 ```
 
-### 4. Code Execution Endpoint (Contract)
+### 5. Code Execution Endpoint (Contract)
 - **URL**: `POST http://localhost:8080/api/v1/execute`
 - **Headers**: `Content-Type: application/json`
+- **Validation Rules**:
+  - `language`: Required, non-blank. Must match `python`, `py`, `javascript`, or `js` (case-insensitive).
+  - `code`: Required, non-blank. Maximum length: **20,000 characters**.
+  - `timeoutMs`: Optional (defaults to `10000`). Bounded between **100 ms** and **30,000 ms**.
 - **Sample Request Payload**:
 ```json
 {
   "language": "python",
-  "code": "print('Hello')",
+  "code": "print('Hello PolyglotMesh')",
   "timeoutMs": 15000
 }
 ```
@@ -293,7 +345,7 @@ The server binds to `http://127.0.0.1:8080`.
 {
   "success": true,
   "language": "python",
-  "output": "Hello",
+  "output": "Hello PolyglotMesh",
   "error": null,
   "executionTimeMs": 142
 }
@@ -303,24 +355,45 @@ The server binds to `http://127.0.0.1:8080`.
   - Body:
 ```json
 {
+  "success": false,
   "status": 503,
+  "errorCode": "ENGINE_UNAVAILABLE",
   "error": "Engine Service Unavailable",
   "message": "GraalVM Polyglot Engine module (com.polyglotmesh:polyglot-engine:1.0.0-SNAPSHOT) is pending team merge from branch 'feature/backend-graalvm' into 'develop'. WebFlux reactive foundation is ready for direct module integration.",
-  "timestamp": "2026-11-26T11:30:00.000000Z",
+  "timestamp": "2026-11-27T11:30:00.000000Z",
   "path": "/api/v1/execute",
-  "details": []
+  "details": ["..."]
 }
 ```
 
-### 5. Validation Error Examples
-- **Request with Unsupported Language (`ruby`)**:
+### 6. Validation Error Examples
+- **Request with Unsupported Language (`ruby` or `java`)**:
   - Status: `400 Bad Request`
-  - Error: `Validation Failed`
-  - Details: `["language: Unsupported language. Currently supported languages: python, js"]`
+  - Body:
+```json
+{
+  "success": false,
+  "status": 400,
+  "errorCode": "VALIDATION_FAILED",
+  "error": "Validation Failed",
+  "message": "Request body contains invalid fields",
+  "path": "/api/v1/execute",
+  "details": ["language: Unsupported language. Currently supported languages: python, javascript (aliases: py, js)"]
+}
+```
 - **Request with Empty Code**:
   - Status: `400 Bad Request`
-  - Error: `Validation Failed`
   - Details: `["code: Code cannot be empty"]`
+- **Request with Excessive Code (> 20,000 chars)**:
+  - Status: `400 Bad Request`
+  - Details: `["code: Code size exceeds maximum limit of 20000 characters"]`
+- **Request with Out-of-Bounds Timeout (< 100 ms or > 30,000 ms)**:
+  - Status: `400 Bad Request`
+  - Details: `["timeoutMs: Timeout cannot exceed 30000 ms (30 seconds)"]`
+- **Request with Malformed JSON Payload**:
+  - Status: `400 Bad Request`
+  - Error: `Bad Request`
+  - ErrorCode: `MALFORMED_REQUEST`
 
 ---
 
