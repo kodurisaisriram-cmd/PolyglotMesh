@@ -1,54 +1,46 @@
 package com.polyglotmesh;
 
-import com.polyglotmesh.model.ExecutionResponse;
+import com.polyglotmesh.model.BenchmarkResponse;
+import com.polyglotmesh.service.PolyglotBenchmarkService;
 import com.polyglotmesh.service.PolyglotExecutionService;
-
-import java.util.HashMap;
-import java.util.Map;
 
 public class Main {
     public static void main(String[] args) {
-        PolyglotExecutionService service = new PolyglotExecutionService();
+        PolyglotExecutionService execService = new PolyglotExecutionService();
+        PolyglotBenchmarkService benchmarkService = new PolyglotBenchmarkService(execService);
 
-        // 1. Create a native Java HashMap
-        Map<String, Object> pricingContext = new HashMap<>();
-        pricingContext.put("productId", "PROD-ENTERPRISE-101");
-        pricingContext.put("basePrice", 1200.0);
-        pricingContext.put("demandFactor", 1.25);
-        pricingContext.put("customerTier", "VIP");
+        // Pre-warm the Python engine so benchmark reflects real production latency
+        System.out.println("Warming up execution engines...");
+        execService.execute("python", "pass");
+        System.out.println("Ready!\n");
 
-        System.out.println("[Step 1] Initial Java HashMap State before Python:");
-        pricingContext.forEach((k, v) -> System.out.println(k + " = " + v));
-        System.out.println();
+        // [Benchmark 1] Python Pricing Engine
+        System.out.println("[Benchmark 1] Python Pricing Engine Execution:");
+        String pythonPricingCode = 
+            "data = {'basePrice': 500, 'demand': 1.4}\n" +
+            "print(f'Final Price: ${data[\"basePrice\"] * data[\"demand\"]}')";
 
-        // 2. Python script directly mutates the Java Map in memory (Zero JSON serialization!)
-        String pythonScript = 
-            "print('--- Python Execution Inside JVM Memory ---')\n" +
-            "base = contextData['basePrice']\n" +
-            "demand = contextData['demandFactor']\n" +
-            "tier = contextData['customerTier']\n" +
-            "\n" +
-            "# Pricing algorithm\n" +
-            "final_price = base * demand\n" +
-            "if tier == 'VIP':\n" +
-            "    final_price = final_price * 0.90 # 10% VIP Discount\n" +
-            "\n" +
-            "# Directly inject new calculated keys back into the Java Map!\n" +
-            "contextData['finalPrice'] = final_price\n" +
-            "contextData['discountApplied'] = '10% VIP Discount'\n" +
-            "contextData['engineStatus'] = 'SUCCESS_ZERO_SERIALIZATION'\n" +
-            "print(f'Python calculated final price: ${final_price}')\n";
+        BenchmarkResponse b1 = benchmarkService.benchmark("python", pythonPricingCode);
+        printBenchmarkCard(b1);
 
-        System.out.println("[Step 2] Executing Python with Direct Memory Reference...");
-        ExecutionResponse response = service.executeWithData("python", pythonScript, pricingContext, 15000);
+        // [Benchmark 2] JavaScript Tier Validation Logic
+        System.out.println("[Benchmark 2] JavaScript Tier Validation Execution:");
+        String jsValidationCode = 
+            "const score = 88;\n" +
+            "console.log(score >= 80 ? 'Tier: Gold Enterprise' : 'Tier: Standard');";
 
-        System.out.println("\n[Step 3] Python Execution Result:");
-        System.out.println("  Status  : " + (response.isSuccess() ? "SUCCESS" : "FAILED"));
-        System.out.println("  Latency : " + response.getExecutionTimeMs() + " ms");
-        System.out.println("  Console :\n" + response.getOutput());
+        BenchmarkResponse b2 = benchmarkService.benchmark("js", jsValidationCode);
+        printBenchmarkCard(b2);
 
-        // 3. Verify in Java: The Java Map was updated in real time!
-        System.out.println("\n[Step 4] Final Java HashMap State (Read in Java):");
-        pricingContext.forEach((k, v) -> System.out.println(k + " = " + v));
-    }
+       }
+
+    private static void printBenchmarkCard(BenchmarkResponse b) {
+        String cleanOutput = b.getOutput() != null ? b.getOutput().replace("\n", " ").trim() : "None";
+        System.out.printf("│ Language          : %-28s %n", b.getLanguage().toUpperCase());
+        System.out.printf("│ In-Memory Polyglot: %-5d ms (Zero network)      %n", b.getPolyglotTimeMs());
+        System.out.printf("│ Traditional REST  : %-5d ms (Simulated Micro)   %n", b.getMockRestTimeMs());
+        System.out.printf("│ Speedup Factor    : %-5.1fx FASTER!             %n", b.getSpeedupRatio());
+        System.out.printf("│ Latency Saved     : %-5d ms per request         %n", b.getLatencySavedMs());
+        System.out.printf("│ Output            : %-28s %n", cleanOutput);
+        }
 }
