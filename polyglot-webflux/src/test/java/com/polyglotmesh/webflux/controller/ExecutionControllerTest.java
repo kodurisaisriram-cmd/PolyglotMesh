@@ -10,14 +10,14 @@ import org.springframework.http.MediaType;
 import org.springframework.test.web.reactive.server.WebTestClient;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
-@AutoConfigureWebTestClient
+@AutoConfigureWebTestClient(timeout = "30000")
 class ExecutionControllerTest {
 
     @Autowired
     private WebTestClient webTestClient;
 
     @Test
-    @DisplayName("GET /api/v1/execute/status returns HTTP 200 with engine integration state")
+    @DisplayName("GET /api/v1/execute/status returns HTTP 200 with engine integration state INTEGRATED")
     void testEngineStatusEndpoint() {
         webTestClient.get()
                 .uri("/api/v1/execute/status")
@@ -25,6 +25,8 @@ class ExecutionControllerTest {
                 .exchange()
                 .expectStatus().isOk()
                 .expectBody()
+                .jsonPath("$.engineAvailable").isEqualTo(true)
+                .jsonPath("$.integrationState").isEqualTo("INTEGRATED")
                 .jsonPath("$.engineModule").isEqualTo("com.polyglotmesh:polyglot-engine")
                 .jsonPath("$.supportedLanguages[0]").isEqualTo("python")
                 .jsonPath("$.supportedLanguages[1]").isEqualTo("js")
@@ -145,51 +147,74 @@ class ExecutionControllerTest {
     }
 
     @Test
-    @DisplayName("POST /api/v1/execute with valid alias 'py' passes validation")
+    @DisplayName("POST /api/v1/execute with valid Python script executes on GraalVM engine and returns 200 OK")
+    void testExecutePythonScriptReturns200() {
+        ExecutionRequestDto validPythonRequest = new ExecutionRequestDto("python", "print('Hello PolyglotMesh')", 25000L);
+
+        webTestClient.post()
+                .uri("/api/v1/execute")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(validPythonRequest)
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody()
+                .jsonPath("$.success").isEqualTo(true)
+                .jsonPath("$.language").isEqualTo("python")
+                .jsonPath("$.output").isEqualTo("Hello PolyglotMesh")
+                .jsonPath("$.error").isEmpty()
+                .jsonPath("$.executionTimeMs").isNumber();
+    }
+
+    @Test
+    @DisplayName("POST /api/v1/execute with valid JavaScript script executes on GraalVM engine and returns 200 OK")
+    void testExecuteJavaScriptScriptReturns200() {
+        ExecutionRequestDto validJsRequest = new ExecutionRequestDto("javascript", "console.log('Hello PolyglotMesh');", 15000L);
+
+        webTestClient.post()
+                .uri("/api/v1/execute")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(validJsRequest)
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody()
+                .jsonPath("$.success").isEqualTo(true)
+                .jsonPath("$.language").isEqualTo("javascript")
+                .jsonPath("$.output").isEqualTo("Hello PolyglotMesh")
+                .jsonPath("$.error").isEmpty()
+                .jsonPath("$.executionTimeMs").isNumber();
+    }
+
+    @Test
+    @DisplayName("POST /api/v1/execute with valid alias 'py' normalizes and executes on GraalVM engine")
     void testExecuteWithPyAliasPassesValidation() {
-        ExecutionRequestDto pyRequest = new ExecutionRequestDto("py", "print('Hello from py')", 5000L);
+        ExecutionRequestDto pyRequest = new ExecutionRequestDto("py", "print('Hello from py')", 25000L);
 
         webTestClient.post()
                 .uri("/api/v1/execute")
                 .contentType(MediaType.APPLICATION_JSON)
                 .bodyValue(pyRequest)
                 .exchange()
-                .expectStatus().isEqualTo(503) // Passes validation, reaches engine bridge (pending merge)
+                .expectStatus().isOk()
                 .expectBody()
-                .jsonPath("$.status").isEqualTo(503)
-                .jsonPath("$.error").isEqualTo("Engine Service Unavailable");
+                .jsonPath("$.success").isEqualTo(true)
+                .jsonPath("$.language").isEqualTo("python")
+                .jsonPath("$.output").isEqualTo("Hello from py");
     }
 
     @Test
-    @DisplayName("POST /api/v1/execute with valid alias 'js' passes validation")
+    @DisplayName("POST /api/v1/execute with valid alias 'js' normalizes and executes on GraalVM engine")
     void testExecuteWithJsAliasPassesValidation() {
-        ExecutionRequestDto jsRequest = new ExecutionRequestDto("js", "console.log('Hello from js');", 5000L);
+        ExecutionRequestDto jsRequest = new ExecutionRequestDto("js", "console.log('Hello from js');", 15000L);
 
         webTestClient.post()
                 .uri("/api/v1/execute")
                 .contentType(MediaType.APPLICATION_JSON)
                 .bodyValue(jsRequest)
                 .exchange()
-                .expectStatus().isEqualTo(503) // Passes validation, reaches engine bridge (pending merge)
+                .expectStatus().isOk()
                 .expectBody()
-                .jsonPath("$.status").isEqualTo(503)
-                .jsonPath("$.error").isEqualTo("Engine Service Unavailable");
-    }
-
-    @Test
-    @DisplayName("POST /api/v1/execute with valid payload when engine pending returns HTTP 503 Service Unavailable")
-    void testExecuteWhenEnginePendingReturns503() {
-        ExecutionRequestDto validRequest = new ExecutionRequestDto("python", "print('Hello')", 5000L);
-
-        webTestClient.post()
-                .uri("/api/v1/execute")
-                .contentType(MediaType.APPLICATION_JSON)
-                .bodyValue(validRequest)
-                .exchange()
-                .expectStatus().isEqualTo(503)
-                .expectBody()
-                .jsonPath("$.status").isEqualTo(503)
-                .jsonPath("$.error").isEqualTo("Engine Service Unavailable")
-                .jsonPath("$.message").value(org.hamcrest.Matchers.containsString("polyglot-engine"));
+                .jsonPath("$.success").isEqualTo(true)
+                .jsonPath("$.language").isEqualTo("javascript")
+                .jsonPath("$.output").isEqualTo("Hello from js");
     }
 }

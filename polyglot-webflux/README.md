@@ -72,8 +72,8 @@ Running on **Oracle GraalVM JDK 21**, the module incorporates an architectural b
                                                            | subscribeOn(Schedulers.boundedElastic())
                                                            v
                                             +-----------------------------+
-                                            |   BOUNDED ELASTIC THREADS   |
-                                            |     [boundedElastic-1..N]   |
+                                            |   DEDICATED BOUNDED WORKER   |
+                                            |     [polyglot-worker-1..10]   |
                                             | (Offloads blocking GraalVM) |
                                             +-----------------------------+
                                                            |
@@ -81,7 +81,7 @@ Running on **Oracle GraalVM JDK 21**, the module incorporates an architectural b
                                                            v
                                             +-----------------------------+
                                             |   PolyglotExecutionService  |
-                                            |  (GraalVM Polyglot Engine)  |
+                                            |  (Managed Spring Singleton)  |
                                             | Context: Python / JavaScript|
                                             +-----------------------------+
 ```
@@ -91,12 +91,16 @@ In traditional Spring MVC (Tomcat), each incoming HTTP request is assigned a ded
 
 In **Spring WebFlux (Netty)**, a small, fixed number of event-loop threads (typically matching CPU core count) handle all incoming network traffic. **Never block a Netty event-loop thread.** If `.block()` is called on an event loop, the entire server stalls.
 
-To safely execute synchronous GraalVM guest scripts, `GraalVmExecutionBridgeService` wraps execution in:
+To safely execute synchronous GraalVM guest scripts, `ReactiveExecutionService` wraps execution in:
 ```java
-Mono.fromCallable(() -> engine.execute(request))
-    .subscribeOn(Schedulers.boundedElastic());
+Mono.fromCallable(() -> engine.execute(engineRequest))
+    .subscribeOn(this.executionScheduler);
 ```
-This cleanly shifts blocking CPU work to a dedicated pool (`boundedElastic`), allowing Netty to keep accepting new network requests uninterrupted.
+Where `executionScheduler` is a dedicated bounded elastic scheduler created with:
+```java
+Schedulers.newBoundedElastic(threadPoolSize, taskQueueCapacity, "polyglot-worker")
+```
+This isolates CPU-intensive GraalVM context compilation and evaluation to dedicated worker threads (`polyglot-worker-1..10`), preserving Netty event-loop threads (`reactor-http-nio-*`) for handling high-volume concurrent network I/O. Proper lifecycle management is ensured via `@PreDestroy` which cleanly disposes the scheduler on application shutdown.
 
 ---
 
@@ -111,7 +115,8 @@ polyglot-webflux/
     │   ├── java/com/polyglotmesh/webflux/
     │   │   ├── WebfluxApplication.java       # Spring Boot main entrypoint
     │   │   ├── config/
-    │   │   │   ├── PolyglotEngineProperties.java # Bounded execution properties
+    │   │   │   ├── EngineConfig.java         # Managed GraalVM PolyglotExecutionService bean
+│   │   │   │   ├── PolyglotEngineProperties.java # Bounded execution properties
     │   │   │   └── WebFluxConfig.java        # CORS and WebFlux configuration
     │   │   ├── controller/
     │   │   │   ├── HealthController.java     # GET /api/v1/health reactive controller
@@ -131,7 +136,8 @@ polyglot-webflux/
     │   │   └── service/
     │   │       ├── ExecutionService.java     # Reactive service interface
     │   │       ├── LanguageService.java      # Normalization and language catalog
-    │   │       └── GraalVmExecutionBridgeService.java # Non-blocking GraalVM bridge
+    │   │       └── ReactiveExecutionService.java # Primary reactive execution service (bounded worker)
+│   │   │       └── GraalVmExecutionBridgeService.java # Classpath fallback/diagnostic bridge
     │   └── resources/
     │       └── application.yml               # Reactive server and logging configuration
     └── test/
@@ -143,7 +149,8 @@ polyglot-webflux/
             │   └── ExecutionControllerTest.java # Validation & status tests
             └── service/
                 ├── LanguageServiceTest.java  # Normalization & alias unit tests
-                └── GraalVmExecutionBridgeServiceTest.java # StepVerifier reactive test
+                └── ReactiveExecutionServiceTest.java # Reactive execution & worker thread verification tests
+│               └── GraalVmExecutionBridgeServiceTest.java # StepVerifier reactive test
 ```
 
 ---
@@ -154,8 +161,10 @@ polyglot-webflux/
 1. **`WebfluxApplication`**:
    Annotated with `@SpringBootApplication`. Boots the application context using `SpringApplication.run()` and launches the embedded Netty server on port 8080.
 2. **`PolyglotEngineProperties`**:
-   Annotated with `@ConfigurationProperties(prefix = "polyglot.engine")`. Centralizes bounded execution defaults (default timeout: 10,000 ms, min timeout: 100 ms, max timeout: 30,000 ms, max code length: 20,000 characters).
-3. **`WebFluxConfig`**:
+   Annotated with `@ConfigurationProperties(prefix = "polyglot.engine")`. Centralizes bounded execution defaults (default timeout: 10,000 ms, min timeout: 100 ms, max timeout: 30,000 ms, max code length: 20,000 characters, threadPoolSize: 10, taskQueueCapacity: 100).
+3. **`EngineConfig`**:
+   Annotated with `@Configuration`. Declares a Spring-managed singleton `@Bean` for `com.polyglotmesh.service.PolyglotExecutionService`. Ensures proper engine lifecycle and single instance reuse across all reactive executions without recreating the GraalVM engine per request.
+4. **`WebFluxConfig`**:
    Implements `WebFluxConfigurer`. Configures Cross-Origin Resource Sharing (CORS) to permit frontend requests from Vite/React (`http://localhost:5173`) and Next.js/React (`http://localhost:3000`).
 
 ### REST Controllers
@@ -171,8 +180,10 @@ polyglot-webflux/
    Manages language normalization and aliases at the API boundary. Converts incoming aliases (e.g. `py` -> `python`, `js` -> `javascript`) and maps canonical languages to internal GraalVM engine identifiers (`javascript` -> `js`). Strictly rejects unsupported languages (e.g. Ruby, Java).
 8. **`ExecutionService`**:
    Defines the contract for non-blocking code execution (`Mono<ExecutionResponseDto> execute(ExecutionRequestDto requestDto)`).
-9. **`GraalVmExecutionBridgeService`**:
-   The architectural bridge. Detects whether `com.polyglotmesh.service.PolyglotExecutionService` exists on the classpath. If unlinked (engine pending branch merge), it cleanly throws `EngineUnavailableException`. When linked, it delegates execution on `Schedulers.boundedElastic()`.
+9. **`ReactiveExecutionService`**:
+   Annotated with `@Service` and `@Primary`. Implements `ExecutionService`. Handles non-blocking code execution by delegating blocking GraalVM engine calls to a dedicated bounded elastic scheduler (`polyglot-worker-1..10`, queue capacity: 100) via `Mono.fromCallable(...).subscribeOn(...)`. Normalizes input languages via `LanguageService`, constructs engine requests with validated bounds, and manages graceful scheduler disposal via `@PreDestroy`.
+10. **`GraalVmExecutionBridgeService`**:
+   Classpath fallback and diagnostic bridge. Detects whether `com.polyglotmesh.service.PolyglotExecutionService` exists on the classpath and provides status diagnostics for `GET /api/v1/execute/status`.
 
 ### DTOs & Validation
 10. **`SupportedLanguagesResponse` & `LanguageInfoDto`**:
@@ -317,22 +328,22 @@ The server binds to `http://127.0.0.1:8080`.
 - **Sample Response**:
 ```json
 {
-  "engineAvailable": false,
-  "engineModule": "com.polyglotmesh:polyglot-engine",
-  "integrationState": "PENDING_MERGE",
+  "engineAvailable": true,
+  "engineModule": "com.polyglotmesh:polyglot-engine:1.0.0-SNAPSHOT",
+  "integrationState": "INTEGRATED",
   "supportedLanguages": ["python", "js"],
-  "reactiveBridge": "Schedulers.boundedElastic"
+  "reactiveBridge": "Schedulers.newBoundedElastic (polyglot-worker)"
 }
 ```
 
-### 5. Code Execution Endpoint (Contract)
+### 5. Code Execution Endpoint (Live Reactive Execution)
 - **URL**: `POST http://localhost:8080/api/v1/execute`
 - **Headers**: `Content-Type: application/json`
 - **Validation Rules**:
   - `language`: Required, non-blank. Must match `python`, `py`, `javascript`, or `js` (case-insensitive).
   - `code`: Required, non-blank. Maximum length: **20,000 characters**.
   - `timeoutMs`: Optional (defaults to `10000`). Bounded between **100 ms** and **30,000 ms**.
-- **Sample Request Payload**:
+- **Sample Request Payload (Python)**:
 ```json
 {
   "language": "python",
@@ -340,29 +351,32 @@ The server binds to `http://127.0.0.1:8080`.
   "timeoutMs": 15000
 }
 ```
-- **Expected Successful Response (When Engine Linked)**:
+- **Successful Response (Python)**:
 ```json
 {
   "success": true,
   "language": "python",
-  "output": "Hello PolyglotMesh",
+  "output": "Hello PolyglotMesh\n",
   "error": null,
   "executionTimeMs": 142
 }
 ```
-- **Response While Engine is Pending Merge**:
-  - Status: `503 Service Unavailable`
-  - Body:
+- **Sample Request Payload (JavaScript)**:
 ```json
 {
-  "success": false,
-  "status": 503,
-  "errorCode": "ENGINE_UNAVAILABLE",
-  "error": "Engine Service Unavailable",
-  "message": "GraalVM Polyglot Engine module (com.polyglotmesh:polyglot-engine:1.0.0-SNAPSHOT) is pending team merge from branch 'feature/backend-graalvm' into 'develop'. WebFlux reactive foundation is ready for direct module integration.",
-  "timestamp": "2026-11-27T11:30:00.000000Z",
-  "path": "/api/v1/execute",
-  "details": ["..."]
+  "language": "javascript",
+  "code": "console.log('Hello PolyglotMesh');",
+  "timeoutMs": 5000
+}
+```
+- **Successful Response (JavaScript)**:
+```json
+{
+  "success": true,
+  "language": "javascript",
+  "output": "Hello PolyglotMesh\n",
+  "error": null,
+  "executionTimeMs": 36
 }
 ```
 
@@ -399,22 +413,9 @@ The server binds to `http://127.0.0.1:8080`.
 
 ## 11. GraalVM Integration Status & Team Coordination
 
-### Current Integration Status: `PENDING_MERGE`
-Teammate Aakash developed the initial `polyglot-engine` on branch `feature/backend-graalvm`. As of Week 1:
-1. `polyglot-engine` has not yet been reviewed or merged into `develop`.
-2. The engine POM contains invalid metadata:
-   - `<modelVersion>3.9.16</modelVersion>` (must be corrected to `4.0.0`).
-   - XML namespace schema URL points to `3.9.16.xsd` (must be `maven-4.0.0.xsd`).
-3. Compiled `.class` files in `target/classes/` were committed to `feature/backend-graalvm` due to missing root `.gitignore` Java rules (which have now been fixed on `feature/backend-webflux`).
-
-### Week 2 Integration Checklist
-Once teammate Aakash corrects the engine POM and merges `polyglot-engine` into `develop`:
-1. Add the engine dependency in `polyglot-webflux/pom.xml`:
-   ```xml
-   <dependency>
-       <groupId>com.polyglotmesh</groupId>
-       <artifactId>polyglot-engine</artifactId>
-       <version>1.0.0-SNAPSHOT</version>
-   </dependency>
-   ```
-2. Rebuild the project (`mvn clean compile`). `GraalVmExecutionBridgeService` will automatically detect `com.polyglotmesh.service.PolyglotExecutionService` on the classpath and seamlessly activate live execution without any architectural refactoring.
+### Current Integration Status: `INTEGRATED` (Week 2 Day 2)
+The GraalVM execution engine (`com.polyglotmesh:polyglot-engine:1.0.0-SNAPSHOT`) was integrated into `polyglot-webflux` via standard Maven coordinates.
+- **Managed Lifecycle**: `EngineConfig` exposes `PolyglotExecutionService` as a singleton bean.
+- **Dedicated Concurrency**: `ReactiveExecutionService` delegates execution to a bounded worker scheduler (`polyglot-worker-1..10`, queue capacity: 100), ensuring Netty event loops are never blocked.
+- **Supported Guest Runtimes**: Python (`GraalPy 24.1.0`) and JavaScript (`GraalJS 24.1.0`).
+- **Engine Execution**: Both Python scripts (`print(...)`) and JavaScript scripts (`console.log(...)`) execute live with output capture, status reporting, and timeout watchdog support.

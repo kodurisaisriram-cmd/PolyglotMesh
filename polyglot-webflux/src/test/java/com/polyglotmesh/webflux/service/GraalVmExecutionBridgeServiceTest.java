@@ -9,7 +9,8 @@ import org.junit.jupiter.api.Test;
 import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 
-import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class GraalVmExecutionBridgeServiceTest {
 
@@ -21,21 +22,24 @@ class GraalVmExecutionBridgeServiceTest {
     }
 
     @Test
-    @DisplayName("Verify bridge reports engine unlinked when polyglot-engine is not on classpath")
-    void testEngineAvailabilityWhenPending() {
-        assertFalse(bridgeService.isEngineAvailable(),
-                "Engine should report unavailable until polyglot-engine is merged and linked");
+    @DisplayName("Verify bridge reports engine linked when polyglot-engine is on classpath")
+    void testEngineAvailabilityWhenLinked() {
+        assertTrue(bridgeService.isEngineAvailable(),
+                "Engine should report available when polyglot-engine is linked on classpath");
     }
 
     @Test
-    @DisplayName("Verify reactive pipeline emits EngineUnavailableException via StepVerifier")
-    void testReactivePipelineErrorEmission() {
-        ExecutionRequestDto request = new ExecutionRequestDto("python", "print('Hello')", 5000L);
+    @DisplayName("Verify reflection bridge executes Python script successfully")
+    void testBridgeExecutesPython() {
+        ExecutionRequestDto request = new ExecutionRequestDto("python", "print('Bridge Hello')", 15000L);
 
         Mono<ExecutionResponseDto> executionMono = bridgeService.execute(request);
 
         StepVerifier.create(executionMono)
-                .expectError(EngineUnavailableException.class)
-                .verify();
+                .assertNext(response -> {
+                    assertTrue(response.isSuccess());
+                    assertEquals("Bridge Hello", response.getOutput());
+                })
+                .verifyComplete();
     }
 }

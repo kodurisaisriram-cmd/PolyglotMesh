@@ -18,14 +18,34 @@ public class PolyglotEngineProperties {
     public static final long MIN_TIMEOUT_MS = 100L;
     public static final long MAX_TIMEOUT_MS = 30000L;
     public static final int MAX_CODE_LENGTH = 20000;
+    public static final int DEFAULT_THREAD_POOL_SIZE = 10;
+    public static final int DEFAULT_TASK_QUEUE_CAPACITY = 100;
 
     private long defaultTimeoutMs = DEFAULT_TIMEOUT_MS;
     private long minTimeoutMs = MIN_TIMEOUT_MS;
     private long maxTimeoutMs = MAX_TIMEOUT_MS;
     private int maxCodeLength = MAX_CODE_LENGTH;
+    private int threadPoolSize = DEFAULT_THREAD_POOL_SIZE;
+    private int taskQueueCapacity = DEFAULT_TASK_QUEUE_CAPACITY;
     private List<String> supportedLanguages = new ArrayList<>(List.of("python", "javascript"));
 
     public PolyglotEngineProperties() {
+    }
+
+    public int getThreadPoolSize() {
+        return threadPoolSize;
+    }
+
+    public void setThreadPoolSize(int threadPoolSize) {
+        this.threadPoolSize = threadPoolSize;
+    }
+
+    public int getTaskQueueCapacity() {
+        return taskQueueCapacity;
+    }
+
+    public void setTaskQueueCapacity(int taskQueueCapacity) {
+        this.taskQueueCapacity = taskQueueCapacity;
     }
 
     public long getDefaultTimeoutMs() {

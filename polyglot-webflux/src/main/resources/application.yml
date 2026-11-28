@@ -31,6 +31,8 @@ polyglot:
     min-timeout-ms: 100
     max-timeout-ms: 30000
     max-code-length: 20000
+    thread-pool-size: 10
+    task-queue-capacity: 100
     supported-languages:
       - python
       - javascript
